@@ -25,8 +25,8 @@ func main() {
 
 	mux := http.NewServeMux()
 	mux.Handle("/app/", config.middlewareMetricsInc(http.StripPrefix("/app", http.FileServer(http.Dir(".")))))
-	mux.Handle("/assets", http.FileServer(http.Dir(".")))
-	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
+	mux.Handle("/api/assets", http.FileServer(http.Dir(".")))
+	mux.HandleFunc("GET /api/healthz", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 		w.WriteHeader(200)
 		if _, err := w.Write([]byte("OK")); err != nil {
@@ -34,12 +34,17 @@ func main() {
 		}
 	})
 
-	mux.HandleFunc("/metrics", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-		fmt.Fprintf(w, "Hits: %d", config.fileserverHits.Load())
+	mux.HandleFunc("GET /admin/metrics", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		fmt.Fprintf(w, `<html>
+						<body>
+							<h1>Welcome, Chirpy Admin</h1>
+							<p>Chirpy has been visited %d times!</p>
+						</body>
+						</html>`, config.fileserverHits.Load())
 	})
 
-	mux.HandleFunc("/reset", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("POST /admin/reset", func(w http.ResponseWriter, r *http.Request) {
 		config.fileserverHits.Store(0)
 	})
 
