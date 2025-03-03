@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
@@ -33,7 +34,6 @@ func main() {
 			log.Printf("failed to write response: %v", err)
 		}
 	})
-
 	mux.HandleFunc("GET /admin/metrics", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		fmt.Fprintf(w, `<html>
@@ -46,6 +46,90 @@ func main() {
 
 	mux.HandleFunc("POST /admin/reset", func(w http.ResponseWriter, r *http.Request) {
 		config.fileserverHits.Store(0)
+	})
+
+	mux.HandleFunc("POST /api/validate_chirp", func(w http.ResponseWriter, r *http.Request) {
+		type checkChirp struct {
+			Body string `json:"body"`
+		}
+		type errChirp struct {
+			Error string `json:"error"`
+		}
+		type validChirp struct {
+			Valid bool `json:"valid"`
+		}
+
+		decoder := json.NewDecoder(r.Body)
+		params := checkChirp{}
+		if err := decoder.Decode(&params); err != nil {
+			respBody := errChirp{
+				Error: "Something went wrong",
+			}
+			dat, err := json.Marshal(respBody)
+			if err != nil {
+				log.Printf("Error marshaling JSON: %s", err)
+				w.WriteHeader(500)
+				return
+			}
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(500)
+			if _, err := w.Write(dat); err != nil {
+				log.Printf("failed to write response: %v", err)
+			}
+			return
+		}
+
+		if params.Body == "" {
+			respBody := errChirp{
+				Error: "Chirp cannot be empty",
+			}
+			dat, err := json.Marshal(respBody)
+			if err != nil {
+				log.Printf("Error marshaling JSON: %s", err)
+				w.WriteHeader(500)
+				return
+			}
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(400)
+			if _, err := w.Write(dat); err != nil {
+				log.Printf("failed to write response: %v", err)
+			}
+			return
+		}
+
+		if len(params.Body) > 140 {
+			respBody := errChirp{
+				Error: "Chirp is too long",
+			}
+			dat, err := json.Marshal(respBody)
+			if err != nil {
+				log.Printf("Error marshaling JSON: %s", err)
+				w.WriteHeader(500)
+				return
+			}
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(400)
+			if _, err := w.Write(dat); err != nil {
+				log.Printf("failed to write response: %v", err)
+			}
+			return
+		}
+
+		respBody := validChirp{
+			Valid: true,
+		}
+		dat, err := json.Marshal(respBody)
+		if err != nil {
+			log.Printf("Error marshaling JSON: %s", err)
+			w.WriteHeader(400)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(200)
+		if _, err := w.Write(dat); err != nil {
+			log.Printf("failed to write response: %v", err)
+		}
+		return
 	})
 
 	server := &http.Server{
