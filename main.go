@@ -135,40 +135,40 @@ func main() {
 		}
 	})
 
-	mux.HandleFunc("POST /api/validate_chirp", func(w http.ResponseWriter, r *http.Request) {
-		type checkChirp struct {
-			Body string `json:"body"`
-		}
-		type errChirp struct {
-			Error string `json:"error"`
-		}
-		type validChirp struct {
-			Cleaned_body string `json:"cleaned_body"`
-		}
+	// mux.HandleFunc("POST /api/validate_chirp", func(w http.ResponseWriter, r *http.Request) {
+	// 	type checkChirp struct {
+	// 		Body string `json:"body"`
+	// 	}
+	// 	type errChirp struct {
+	// 		Error string `json:"error"`
+	// 	}
+	// 	type validChirp struct {
+	// 		Cleaned_body string `json:"cleaned_body"`
+	// 	}
 
-		decoder := json.NewDecoder(r.Body)
-		params := checkChirp{}
-		if err := decoder.Decode(&params); err != nil {
-			respondWithError(w, 500, "Something went wrong")
-			return
-		}
+	// 	decoder := json.NewDecoder(r.Body)
+	// 	params := checkChirp{}
+	// 	if err := decoder.Decode(&params); err != nil {
+	// 		respondWithError(w, 500, "Something went wrong")
+	// 		return
+	// 	}
 
-		if params.Body == "" {
-			respondWithError(w, 400, "Chirp cannot be empty")
-			return
-		}
+	// 	if params.Body == "" {
+	// 		respondWithError(w, 400, "Chirp cannot be empty")
+	// 		return
+	// 	}
 
-		if len(params.Body) > 140 {
-			respondWithError(w, 400, "Chirp is too long")
-			return
-		}
+	// 	if len(params.Body) > 140 {
+	// 		respondWithError(w, 400, "Chirp is too long")
+	// 		return
+	// 	}
 
-		respBody := validChirp{
-			Cleaned_body: cleanBadWords(params.Body),
-		}
-		respondWithJSON(w, 200, respBody)
-		return
-	})
+	// 	respBody := validChirp{
+	// 		Cleaned_body: cleanBadWords(params.Body),
+	// 	}
+	// 	respondWithJSON(w, 200, respBody)
+	// 	return
+	// })
 
 	mux.HandleFunc("POST /api/users", func(w http.ResponseWriter, r *http.Request) {
 		type users struct {
@@ -209,6 +209,67 @@ func main() {
 
 		respondWithJSON(w, 201, respBody)
 		return
+	})
+
+	mux.HandleFunc("POST /api/chirps", func(w http.ResponseWriter, r *http.Request) {
+		type incomingChirp struct {
+			USER_ID uuid.UUID    `json:"user_id"`
+			Body    string `json:"body"`
+		}
+
+		type errChirp struct {
+			Error string `json:"error"`
+		}
+
+		type chirpCreated struct {
+			ID        uuid.UUID `json:"id"`
+			CreatedAt time.Time `json:"created_at"`
+			UpdatedAt time.Time `json:"updated_at"`
+			Body      string    `json:"body"`
+			USER_ID   uuid.UUID `json:"user_id"`
+		}
+
+		decoder := json.NewDecoder(r.Body)
+		params := incomingChirp{}
+		if err := decoder.Decode(&params); err != nil {
+			respondWithError(w, 500, "Something went wrong")
+			return
+		}
+
+		if params.Body == "" {
+			respondWithError(w, 400, "Chirp cannot be empty")
+			return
+		}
+
+		if len(params.Body) > 140 {
+			respondWithError(w, 400, "Chirp is too long")
+			return
+		}
+
+		clean_chirp := cleanBadWords(params.Body)
+
+		chirp_payload := database.CreateChirpParams{
+			UserID: params.USER_ID,
+			Body: clean_chirp,
+		}
+
+		chirp, err := config.DB.CreateChirp(r.Context(), chirp_payload)
+		if err != nil {
+			respondWithError(w, 500, fmt.Sprintf("Chirp was not created with error %v", err))
+			return
+		}
+
+		respBody := chirpCreated{
+			ID:        chirp.ID,
+			CreatedAt: chirp.CreatedAt,
+			UpdatedAt: chirp.UpdatedAt,
+			Body:      chirp.Body,
+			USER_ID:   chirp.UserID,
+		}
+
+		respondWithJSON(w, 201, respBody)
+		return
+
 	})
 
 	server := &http.Server{
