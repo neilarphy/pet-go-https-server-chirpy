@@ -1,17 +1,26 @@
 package main
 
 import (
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
+	"os"
 	"strings"
 	"sync/atomic"
 	"time"
+
+	"github.com/google/uuid"
+	"github.com/joho/godotenv"
+	_ "github.com/lib/pq"
+	"github.com/neilarphy/pet-go-https-server-chirpy/internal/database"
 )
 
 type apiConfig struct {
 	fileserverHits atomic.Int32
+	DB             *database.Queries
+	PLATFORM       string
 }
 
 func (cfg *apiConfig) middlewareMetricsInc(next http.Handler) http.Handler {
@@ -77,8 +86,22 @@ func cleanBadWords(text string) string {
 }
 
 func main() {
+	godotenv.Load()
 
-	config := apiConfig{}
+	dbURL := os.Getenv("DB_URL")
+	env := os.Getenv("PLATFORM")
+
+	db, err := sql.Open("postgres", dbURL)
+	if err != nil {
+
+	}
+
+	dbQueries := database.New(db)
+
+	config := apiConfig{
+		DB:       dbQueries,
+		PLATFORM: env,
+	}
 
 	mux := http.NewServeMux()
 	mux.Handle("/app/", config.middlewareMetricsInc(http.StripPrefix("/app", http.FileServer(http.Dir(".")))))
@@ -101,7 +124,15 @@ func main() {
 	})
 
 	mux.HandleFunc("POST /admin/reset", func(w http.ResponseWriter, r *http.Request) {
+		if config.PLATFORM != "dev" {
+			respondWithError(w, 403, "Forbidden")
+			return
+		}
 		config.fileserverHits.Store(0)
+		err := config.DB.DeleteAllUsers(r.Context())
+		if err != nil {
+			log.Fatal(err)
+		}
 	})
 
 	mux.HandleFunc("POST /api/validate_chirp", func(w http.ResponseWriter, r *http.Request) {
@@ -136,6 +167,47 @@ func main() {
 			Cleaned_body: cleanBadWords(params.Body),
 		}
 		respondWithJSON(w, 200, respBody)
+		return
+	})
+
+	mux.HandleFunc("POST /api/users", func(w http.ResponseWriter, r *http.Request) {
+		type users struct {
+			Email string `json:"email"`
+		}
+
+		type userCreated struct {
+			ID        uuid.UUID `json:"id"`
+			CreatedAt time.Time `json:"created_at"`
+			UpdatedAt time.Time `json:"updated_at"`
+			Email     string    `json:"email"`
+		}
+
+		decoder := json.NewDecoder(r.Body)
+		params := users{}
+		if err := decoder.Decode(&params); err != nil {
+			respondWithError(w, 500, "Something went wrong")
+			return
+		}
+
+		if params.Email == "" {
+			respondWithError(w, 400, "Email cannot be empty")
+			return
+		}
+
+		user, err := config.DB.CreateUser(r.Context(), params.Email)
+		if err != nil {
+			respondWithError(w, 500, fmt.Sprintf("User was not created with error %v", err))
+			return
+		}
+
+		respBody := userCreated{
+			ID:        user.ID,
+			CreatedAt: user.CreatedAt,
+			UpdatedAt: user.UpdatedAt,
+			Email:     user.Email,
+		}
+
+		respondWithJSON(w, 201, respBody)
 		return
 	})
 
